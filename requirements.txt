@@ -5,3 +5,5 @@
 pbr>=2.0 # Apache-2.0
 hvac
 tenacity
+python-gnupg==0.4.3
+requests==2.25.1
