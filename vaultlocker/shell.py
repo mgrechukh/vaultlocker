@@ -69,6 +69,15 @@ def _encrypt_block_device(args, client, config):
     :param: config: configparser object of vaultlocker config
     """
     block_device = args.block_device[0]
+
+    try:
+        old_uuid = dmcrypt.luks_check(block_device)
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        if not args.force:
+            raise exceptions.LUKSFailure(block_device, "existing LUKS header found with uuid {}".format(old_uuid))
+
     key = dmcrypt.generate_key()
     block_uuid = str(uuid.uuid4()) if not args.uuid else args.uuid
     vault_path = _get_vault_path(block_uuid, config)
@@ -242,6 +251,10 @@ def main():
     encrypt_parser.add_argument('--uuid',
                                 dest="uuid",
                                 help="UUID to use to reference encryption key")
+    encrypt_parser.add_argument('--force',
+                                dest="force",
+                                action = 'store_true',
+                                help="Force overwrite if existing LUKS signature found")
     encrypt_parser.add_argument('block_device',
                                 metavar='BLOCK_DEVICE', nargs=1,
                                 help="Full path to block device to encrypt")

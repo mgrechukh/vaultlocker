@@ -16,6 +16,7 @@ import base64
 import logging
 import os
 import subprocess
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,24 @@ def generate_key():
     key = base64.b64encode(data).decode('utf-8')
     return key
 
+
+def luks_check(device):
+    """LUKS check if header present
+
+    Check if LUKS present on block device and return uuid if so
+
+    :param: device: full path to block device to use.
+    """
+    logger.info('LUKS checking {}'.format(device))
+    command = [
+        'cryptsetup',
+        'luksDump',
+        device,
+    ]
+
+    output = subprocess.check_output(command).decode()
+    match = re.search('UUID:[ \t]+(?P<uuid>[a-z0-9-]+)\n', output)
+    return match.group('uuid')
 
 def luks_format(key, device, uuid):
     """LUKS format a block device
