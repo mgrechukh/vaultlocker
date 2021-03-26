@@ -20,7 +20,7 @@ import socket
 import tenacity
 import uuid
 import tempfile
-import shutil
+import re
 
 from six.moves import configparser
 import subprocess
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 RUN_VAULTLOCKER = '/run/vaultlocker'
 DEFAULT_CONF_FILE = '/etc/vaultlocker/vaultlocker.conf'
-
 
 def _vault_client(config):
     """Helper wrapper to create Vault Client
@@ -134,7 +133,7 @@ def _encrypt_block_device(args, client, config):
 
 
 def _rotate_keys(args, client, config):
-    block_uuid = args.uuid[0]
+    block_device, block_uuid = _resolve_device(args.device[0])
 
     vault_path = _get_vault_path(block_uuid, config)
 
@@ -193,7 +192,7 @@ def _rotate_keys(args, client, config):
 
 
 def _create_last_resort(args, client, config):
-    block_uuid = args.uuid[0]
+    block_device, block_uuid = _resolve_device(args.device[0])
 
     vault_path = _get_vault_path(block_uuid, config)
 
@@ -244,7 +243,8 @@ def _decrypt_block_device(args, client, config):
     :param: client: hvac.Client for Vault access
     :param: config: configparser object of vaultlocker config
     """
-    block_uuid = args.uuid[0]
+
+    block_device, block_uuid = _resolve_device(args.device[0])
 
     if _device_exists(block_uuid):
         logger.info('Skipping setup of {} because '
@@ -259,6 +259,13 @@ def _decrypt_block_device(args, client, config):
     key = stored_data['data']['dmcrypt_key']
 
     dmcrypt.luks_open(key, block_uuid)
+
+
+def _resolve_device(_device):
+    if re.search('[^a-f0-9-]', _device.lower()):
+        return (_device, dmcrypt.luks_check(_device))
+    else:
+        return ('/dev/disk/by-uuid/{}'.format(_device), _device)
 
 
 def _device_exists(block_uuid):
@@ -396,29 +403,30 @@ def main():
         'decrypt',
         help='Decrypt a block device retrieving its key from Vault'
     )
-    decrypt_parser.add_argument('uuid',
-                                metavar='uuid', nargs=1,
-                                help='UUID of block device to decrypt')
+    decrypt_parser.add_argument('device',
+                                metavar='device', nargs=1,
+                                help='full path or uuid of block device to decrypt')
     decrypt_parser.set_defaults(func=decrypt)
 
     rotate_parser = subparsers.add_parser(
         'rotate-keys',
         help='Rotate encryption keys in Luks and in Vault'
     )
-    rotate_parser.add_argument('uuid',
-                                metavar='uuid', nargs=1,
-                                help='UUID of block device to decrypt')
+    rotate_parser.add_argument('device',
+                                metavar='device', nargs=1,
+                                help='full path or uuid of block device')
     rotate_parser.set_defaults(func=rotate_keys)
 
     last_resort_parser = subparsers.add_parser(
         'last-resort',
         help='Create last-resort encryption keys in Luks, store them GPG-encrypted for a given list of recipients'
     )
-    last_resort_parser.add_argument('uuid',
-                                metavar='uuid', nargs=1,
-                                help='UUID of block device to decrypt')
+    last_resort_parser.add_argument('device',
+                                metavar='device', nargs=1,
+                                help='full path or uuid of block device')
     last_resort_parser.add_argument('--recipients',
                                 dest='recipients',
+                                required = True,
                                 help='comma-separated list of Keybase IDs')
     last_resort_parser.add_argument('--print',
                                 dest='print',
