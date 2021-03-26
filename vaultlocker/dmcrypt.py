@@ -33,6 +33,7 @@ def generate_key():
     key = base64.b64encode(data).decode('utf-8')
     return key
 
+
 def luks_status(uuid):
     logger.info('checking status {}'.format(uuid))
     command = [
@@ -68,7 +69,8 @@ def luks_check(device):
     ]
 
     output = subprocess.check_output(command).decode('UTF-8', 'replace')
-    return re.search('^UUID:[ \t]+(?P<uuid>[a-z0-9-]+)$', output, flags = re.MULTILINE).group('uuid')
+    return re.search('^UUID:[ \t]+(?P<uuid>[a-z0-9-]+)$', output, flags=re.MULTILINE).group('uuid')
+
 
 def luks_format(key, device, uuid):
     """LUKS format a block device
@@ -123,7 +125,7 @@ def luks_open(key, uuid):
     return handle
 
 
-def luks_try_open(key, uuid, slot = None):
+def luks_try_open(key, uuid, slot=None):
     """LUKS validate key is usable
 
     Validate provided key (passprase) on a block device specified by uuid, using dm-crypt/LUKS
@@ -147,7 +149,8 @@ def luks_try_open(key, uuid, slot = None):
     if slot != None:
         command.append('--key-slot={}'.format(slot))
     return subprocess.check_output(command,
-                            input=key.encode('UTF-8'))
+                                   input=key.encode('UTF-8'))
+
 
 def luks_add_key(key, uuid, new_key, slot):
     """LUKS add new key to blockdevice
@@ -176,7 +179,7 @@ def luks_add_key(key, uuid, new_key, slot):
         'UUID={}'.format(uuid),
     ]
     return subprocess.check_output(command,
-                            input=b'\n'.join(keys))
+                                   input=b'\n'.join(keys))
 
 
 def luks_kill_slot(key, uuid, slot):
@@ -208,7 +211,8 @@ def luks_kill_slot(key, uuid, slot):
     ]
 
     return subprocess.check_output(command,
-                            input=key.encode('UTF-8'))
+                                   input=key.encode('UTF-8'))
+
 
 def udevadm_rescan(device):
     """udevadm trigger for block device addition

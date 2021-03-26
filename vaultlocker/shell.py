@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 RUN_VAULTLOCKER = '/run/vaultlocker'
 DEFAULT_CONF_FILE = '/etc/vaultlocker/vaultlocker.conf'
 
+
 def _vault_client(config):
     """Helper wrapper to create Vault Client
 
@@ -78,7 +79,8 @@ def _encrypt_block_device(args, client, config):
         pass
     else:
         if not args.force:
-            raise exceptions.LUKSFailure(block_device, "existing LUKS header found with uuid {}".format(old_uuid))
+            raise exceptions.LUKSFailure(
+                block_device, "existing LUKS header found with uuid {}".format(old_uuid))
 
     key = dmcrypt.generate_key()
     block_uuid = str(uuid.uuid4()) if not args.uuid else args.uuid
@@ -163,12 +165,12 @@ def _rotate_keys(args, client, config):
 
     # slot can be empty
     try:
-        dmcrypt.luks_kill_slot(key, block_uuid, slot = new_slot)
+        dmcrypt.luks_kill_slot(key, block_uuid, slot=new_slot)
     except subprocess.CalledProcessError:
         pass
 
     try:
-        dmcrypt.luks_add_key(key, block_uuid, new_key, slot = new_slot)
+        dmcrypt.luks_add_key(key, block_uuid, new_key, slot=new_slot)
         dmcrypt.luks_try_open(new_key, block_uuid, new_slot)
     except subprocess.CalledProcessError as luks_error:
         logger.error(
@@ -181,7 +183,7 @@ def _rotate_keys(args, client, config):
 
     try:
         client.write(vault_path,
-                     dmcrypt_key=new_key, slot = new_slot, prev_key = key)
+                     dmcrypt_key=new_key, slot=new_slot, prev_key=key)
     except hvac.exceptions.VaultError as write_error:
         logger.error(
             'Vault write to path {}. Failed with error: {}'.format(
@@ -195,12 +197,13 @@ def _rotate_keys(args, client, config):
                      'failed with error: {}'.format(vault_path, read_error))
         raise exceptions.VaultReadError(vault_path, read_error)
 
-    if not new_key == stored_data['data']['dmcrypt_key'] or not key == stored_data['data']['prev_key'] :
+    if not new_key == stored_data['data']['dmcrypt_key'] or not key == stored_data['data']['prev_key']:
         raise exceptions.VaultKeyMismatch(vault_path)
 
     # using the _new_ key we're killing the _old_ slot. dmcrypt_key is guaranteed to remain valid after
     # this operation - in worst case CalledProcessError is to be raised
-    dmcrypt.luks_kill_slot(stored_data['data']['dmcrypt_key'], block_uuid, slot = slot)
+    dmcrypt.luks_kill_slot(
+        stored_data['data']['dmcrypt_key'], block_uuid, slot=slot)
 
 
 def _create_last_resort(args, client, config):
@@ -218,19 +221,20 @@ def _create_last_resort(args, client, config):
     last_key = dmcrypt.generate_key()
 
     # will raise if any problems with recipients list
-    encrypted_last_key = encryption.encrypt(last_key, args.recipients.split(',')).decode()
+    encrypted_last_key = encryption.encrypt(
+        last_key, args.recipients.split(',')).decode()
 
     # be sure values are consistent
     dmcrypt.luks_try_open(key, block_uuid, slot)
 
     # slot can be empty
     try:
-        dmcrypt.luks_kill_slot(key, block_uuid, slot = last_slot)
+        dmcrypt.luks_kill_slot(key, block_uuid, slot=last_slot)
     except subprocess.CalledProcessError:
         pass
 
     try:
-        dmcrypt.luks_add_key(key, block_uuid, last_key, slot = last_slot)
+        dmcrypt.luks_add_key(key, block_uuid, last_key, slot=last_slot)
         dmcrypt.luks_try_open(last_key, block_uuid, last_slot)
     except subprocess.CalledProcessError as luks_error:
         logger.error(
@@ -244,7 +248,9 @@ def _create_last_resort(args, client, config):
     if args.print:
         print(encrypted_last_key)
 
-    client.write(vault_path + '-last-resort', key = encrypted_last_key, recipients = args.recipients)
+    client.write(vault_path + '-last-resort',
+                 key=encrypted_last_key, recipients=args.recipients)
+
 
 def _decrypt_block_device(args, client, config):
     """Open a LUKS/dm-crypt encrypted block device
@@ -330,6 +336,7 @@ def decrypt(args, config):
     """
     _do_it_with_persistence(_decrypt_block_device, args, config)
 
+
 def rotate_keys(args, config):
     """Rotate encryption keys handler
 
@@ -346,6 +353,7 @@ def last_resort(args, config):
     :param: config: configparser object of vaultlocker config
     """
     _do_it_with_persistence(_create_last_resort, args, config)
+
 
 def get_config(config_path):
     """Read vaultlocker configuration from config file
@@ -404,7 +412,7 @@ def main():
                                 help="UUID to use to reference encryption key")
     encrypt_parser.add_argument('--force',
                                 dest="force",
-                                action = 'store_true',
+                                action='store_true',
                                 help="Force overwrite if existing LUKS signature found")
     encrypt_parser.add_argument('block_device',
                                 metavar='BLOCK_DEVICE', nargs=1,
@@ -425,8 +433,8 @@ def main():
         help='Rotate encryption keys in Luks and in Vault'
     )
     rotate_parser.add_argument('device',
-                                metavar='device', nargs=1,
-                                help='full path or uuid of block device')
+                               metavar='device', nargs=1,
+                               help='full path or uuid of block device')
     rotate_parser.set_defaults(func=rotate_keys)
 
     last_resort_parser = subparsers.add_parser(
@@ -434,16 +442,16 @@ def main():
         help='Create last-resort encryption keys in Luks, store them GPG-encrypted for a given list of recipients'
     )
     last_resort_parser.add_argument('device',
-                                metavar='device', nargs=1,
-                                help='full path or uuid of block device')
+                                    metavar='device', nargs=1,
+                                    help='full path or uuid of block device')
     last_resort_parser.add_argument('--recipients',
-                                dest='recipients',
-                                required = True,
-                                help='comma-separated list of Keybase IDs')
+                                    dest='recipients',
+                                    required=True,
+                                    help='comma-separated list of Keybase IDs')
     last_resort_parser.add_argument('--print',
-                                dest='print',
-                                action = 'store_true',
-                                help='print encrypted key to stdout')
+                                    dest='print',
+                                    action='store_true',
+                                    help='print encrypted key to stdout')
     last_resort_parser.set_defaults(func=last_resort)
 
     close_parser = subparsers.add_parser(
@@ -451,8 +459,8 @@ def main():
         help='Detach a luks device'
     )
     close_parser.add_argument('device',
-                                metavar='device', nargs=1,
-                                help='full path or uuid of block device to detach')
+                              metavar='device', nargs=1,
+                              help='full path or uuid of block device to detach')
     close_parser.set_defaults(func=_close_block_device)
 
     status_parser = subparsers.add_parser(
@@ -460,10 +468,9 @@ def main():
         help='Check active luks device'
     )
     status_parser.add_argument('device',
-                                metavar='device', nargs=1,
-                                help='full path or uuid of block device to detach')
+                               metavar='device', nargs=1,
+                               help='full path or uuid of block device to detach')
     status_parser.set_defaults(func=_mapping_status)
-
 
     args = parser.parse_args()
 
