@@ -48,9 +48,8 @@ def luks_check(device):
         device,
     ]
 
-    output = subprocess.check_output(command).decode()
-    match = re.search('UUID:[ \t]+(?P<uuid>[a-z0-9-]+)\n', output)
-    return match.group('uuid')
+    output = subprocess.check_output(command).decode('UTF-8', 'replace')
+    return re.search('^UUID:[ \t]+(?P<uuid>[a-z0-9-]+)$', output, flags = re.MULTILINE).group('uuid')
 
 def luks_format(key, device, uuid):
     """LUKS format a block device
