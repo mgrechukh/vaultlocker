@@ -132,6 +132,18 @@ def _encrypt_block_device(args, client, config):
     systemd.enable('vaultlocker-decrypt@{}.service'.format(block_uuid))
 
 
+def _close_block_device(args, config):
+    block_device, block_uuid = _resolve_device(args.device[0])
+
+    dmcrypt.luks_close(block_uuid)
+
+
+def _mapping_status(args, config):
+    block_device, block_uuid = _resolve_device(args.device[0])
+
+    dmcrypt.luks_status(block_uuid)
+
+
 def _rotate_keys(args, client, config):
     block_device, block_uuid = _resolve_device(args.device[0])
 
@@ -433,6 +445,25 @@ def main():
                                 action = 'store_true',
                                 help='print encrypted key to stdout')
     last_resort_parser.set_defaults(func=last_resort)
+
+    close_parser = subparsers.add_parser(
+        'close',
+        help='Detach a luks device'
+    )
+    close_parser.add_argument('device',
+                                metavar='device', nargs=1,
+                                help='full path or uuid of block device to detach')
+    close_parser.set_defaults(func=_close_block_device)
+
+    status_parser = subparsers.add_parser(
+        'status',
+        help='Check active luks device'
+    )
+    status_parser.add_argument('device',
+                                metavar='device', nargs=1,
+                                help='full path or uuid of block device to detach')
+    status_parser.set_defaults(func=_mapping_status)
+
 
     args = parser.parse_args()
 

@@ -33,6 +33,25 @@ def generate_key():
     key = base64.b64encode(data).decode('utf-8')
     return key
 
+def luks_status(uuid):
+    logger.info('checking status {}'.format(uuid))
+    command = [
+        'cryptsetup',
+        'status',
+        'crypt-{}'.format(uuid),
+    ]
+    subprocess.check_call(command)
+
+
+def luks_close(uuid):
+    logger.info('LUKS disabling {}'.format(uuid))
+    command = [
+        'cryptsetup',
+        'close',
+        'crypt-{}'.format(uuid),
+    ]
+    subprocess.check_output(command)
+
 
 def luks_check(device):
     """LUKS check if header present
