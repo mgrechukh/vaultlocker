@@ -45,8 +45,8 @@ def _vault_client(config):
         url=config.get('vault', 'url'),
         verify=config.get('vault', 'ca_bundle', fallback=True)
     )
-    client.auth_approle(config.get('vault', 'approle'),
-                        secret_id=config.get('vault', 'secret_id'))
+    client.auth.approle.login(config.get('vault', 'approle'),
+                              secret_id=config.get('vault', 'secret_id'))
     return client
 
 
@@ -89,7 +89,7 @@ def _encrypt_block_device(args, client, config):
     # NOTE: store and validate key before trying to encrypt disk
     try:
         client.write(vault_path,
-                     dmcrypt_key=key)
+                     dmcrypt_key=key, slot=0)
     except hvac.exceptions.VaultError as write_error:
         logger.error(
             'Vault write to path {}. Failed with error: {}'.format(
@@ -146,6 +146,46 @@ def _mapping_status(args, config):
     dmcrypt.luks_status(block_uuid)
 
 
+def _validate_keys(args, client, config):
+    block_device, block_uuid = _resolve_device(args.device[0])
+
+    vault_path = _get_vault_path(block_uuid, config)
+
+    stored_data = client.read(vault_path)
+    if stored_data is None:
+        raise ValueError('Unable to locate key for {}'.format(block_uuid))
+
+    if args.mode == 'prev':
+        key = stored_data['data'].get('prev_key')
+        slot = stored_data['data'].get('prev_slot')
+    elif args.mode == 'current':
+        key = stored_data['data'].get('dmcrypt_key')
+        slot = stored_data['data'].get('slot')
+    else:
+        raise ValueError("Unrecognized mode '{}'".format(args.mode))
+
+    if key == None or slot == None:
+        raise ValueError('Unable to locate {} key for {} in (%s)'.format(
+            args.mode, block_uuid), stored_data['data'].keys())
+
+    try:
+        dmcrypt.luks_try_open(key, block_uuid, slot)
+    except subprocess.CalledProcessError as luks_error:
+        logger.error(
+            'LUKS {} key on {} ({}) slot {} failed with error code: {}\n'
+            'LUKS output: {}'.format(
+                args.mode,
+                block_device,
+                block_uuid,
+                slot,
+                luks_error.returncode,
+                luks_error.output))
+        raise exceptions.LUKSFailure(block_device, luks_error.output)
+    else:
+        print("{} key in vault is valid for {} ({}) slot {}".format(
+            args.mode, block_device, block_uuid, slot))
+
+
 def _rotate_keys(args, client, config):
     block_device, block_uuid = _resolve_device(args.device[0])
 
@@ -154,36 +194,51 @@ def _rotate_keys(args, client, config):
     stored_data = client.read(vault_path)
     if stored_data is None:
         raise ValueError('Unable to locate key for {}'.format(block_uuid))
-    key = stored_data['data']['dmcrypt_key']
-    slot = int(stored_data['data'].get('slot', 0))
+    old_key = stored_data['data']['dmcrypt_key']
+    old_slot = int(stored_data['data'].get('slot', 0))
 
     # be sure values are consistent
-    dmcrypt.luks_try_open(key, block_uuid, slot)
+    dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
 
-    new_slot = 1 if slot == 0 else 0
+    new_slot = 1 if old_slot == 0 else 0
     new_key = dmcrypt.generate_key()
 
-    # slot can be empty
+    # slot can be empty at present
     try:
-        dmcrypt.luks_kill_slot(key, block_uuid, slot=new_slot)
+        dmcrypt.luks_kill_slot(old_key, block_uuid, slot=new_slot)
     except subprocess.CalledProcessError:
         pass
 
     try:
-        dmcrypt.luks_add_key(key, block_uuid, new_key, slot=new_slot)
+        dmcrypt.luks_add_key(old_key, block_uuid, new_key, slot=new_slot)
+    except subprocess.CalledProcessError as luks_error:
+        logger.error(
+            'LUKS adding {}@{} slot {} failed with error code: {}\n'
+            'LUKS output: {}'.format(
+                block_uuid,
+                block_device,
+                new_slot,
+                luks_error.returncode,
+                luks_error.output))
+        raise exceptions.LUKSFailure(block_device, luks_error.output)
+
+    # validating both keys still are valid
+    try:
+        dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
         dmcrypt.luks_try_open(new_key, block_uuid, new_slot)
     except subprocess.CalledProcessError as luks_error:
         logger.error(
-            'LUKS updating {} failed with error code: {}\n'
+            'LUKS check {}@{} failed with error code: {}\n'
             'LUKS output: {}'.format(
                 block_device,
+                block_uuid,
                 luks_error.returncode,
                 luks_error.output))
         raise exceptions.LUKSFailure(block_device, luks_error.output)
 
     try:
         client.write(vault_path,
-                     dmcrypt_key=new_key, slot=new_slot, prev_key=key)
+                     dmcrypt_key=new_key, slot=new_slot, prev_key=old_key, prev_slot=old_slot)
     except hvac.exceptions.VaultError as write_error:
         logger.error(
             'Vault write to path {}. Failed with error: {}'.format(
@@ -197,13 +252,13 @@ def _rotate_keys(args, client, config):
                      'failed with error: {}'.format(vault_path, read_error))
         raise exceptions.VaultReadError(vault_path, read_error)
 
-    if not new_key == stored_data['data']['dmcrypt_key'] or not key == stored_data['data']['prev_key']:
+    if not new_key == stored_data['data']['dmcrypt_key'] or not old_key == stored_data['data']['prev_key']:
         raise exceptions.VaultKeyMismatch(vault_path)
 
     # using the _new_ key we're killing the _old_ slot. dmcrypt_key is guaranteed to remain valid after
     # this operation - in worst case CalledProcessError is to be raised
-    dmcrypt.luks_kill_slot(
-        stored_data['data']['dmcrypt_key'], block_uuid, slot=slot)
+    # dmcrypt.luks_kill_slot(
+    #    stored_data['data']['dmcrypt_key'], block_uuid, slot=slot)
 
 
 def _create_last_resort(args, client, config):
@@ -281,9 +336,12 @@ def _decrypt_block_device(args, client, config):
 
 def _resolve_device(_device):
     if re.search('[^a-f0-9-]', _device.lower()):
-        return (_device, dmcrypt.luks_check(_device))
+        _device = os.path.realpath(_device)
+        _uuid = dmcrypt.luks_check(_device)
     else:
-        return ('/dev/disk/by-uuid/{}'.format(_device), _device)
+        _uuid = _device
+        _device = os.path.realpath('/dev/disk/by-uuid/{}'.format(_device))
+    return _device, _uuid
 
 
 def _device_exists(block_uuid):
@@ -344,6 +402,15 @@ def rotate_keys(args, config):
     :param: config: configparser object of vaultlocker config
     """
     _do_it_with_persistence(_rotate_keys, args, config)
+
+
+def validate_keys(args, config):
+    """Rotate encryption keys handler
+
+    :param: args: argparser generated cli arguments
+    :param: config: configparser object of vaultlocker config
+    """
+    _do_it_with_persistence(_validate_keys, args, config)
 
 
 def last_resort(args, config):
@@ -453,6 +520,21 @@ def main():
                                     action='store_true',
                                     help='print encrypted key to stdout')
     last_resort_parser.set_defaults(func=last_resort)
+
+    validate_parser = subparsers.add_parser(
+        'validate',
+        help='Validate that keys are valid on luks device'
+    )
+    validate_parser.add_argument('device',
+                                 metavar='device', nargs=1,
+                                 help='full path or uuid of block device to check')
+    validate_parser.add_argument('--prev',
+                                 dest='mode',
+                                 action='store_const',
+                                 const='prev',
+                                 default='current',
+                                 help='check previous key')
+    validate_parser.set_defaults(func=validate_keys)
 
     close_parser = subparsers.add_parser(
         'close',
