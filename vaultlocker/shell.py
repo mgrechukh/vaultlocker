@@ -199,7 +199,6 @@ def _rotate_keys(args, client, config):
     old_slot = int(stored_data['data'].get('slot', 0))
 
     # be sure values are consistent
-    logger.info("checking present key in slot {}", old_slot)
     dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
 
     new_slot = 1 if old_slot == 0 else 0
@@ -211,7 +210,6 @@ def _rotate_keys(args, client, config):
     except subprocess.CalledProcessError:
         pass
 
-    logger.info("adding new key to slot {}", new_slot)
     try:
         dmcrypt.luks_add_key(old_key, block_uuid, new_key, slot=new_slot)
     except subprocess.CalledProcessError as luks_error:
@@ -226,7 +224,6 @@ def _rotate_keys(args, client, config):
         raise exceptions.LUKSFailure(block_device, luks_error.output)
 
     # validating both keys still are valid
-    logger.info("validating both keys are valid")
     try:
         dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
         dmcrypt.luks_try_open(new_key, block_uuid, new_slot)

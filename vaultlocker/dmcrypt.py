@@ -134,7 +134,7 @@ def luks_try_open(key, uuid, slot=None):
     :param: uuid: uuid to use for encrypted block device.
     :param: slot: optionally check passphrase in specific slot only
     """
-    logger.info('LUKS testing open {}'.format(uuid))
+    logger.info('LUKS testing open {} slot={}'.format(uuid, slot))
     command = [
         'cryptsetup',
         '--batch-mode',
