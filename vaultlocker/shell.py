@@ -153,7 +153,7 @@ def _validate_keys(args, client, config):
 
     stored_data = client.read(vault_path)
     if stored_data is None:
-        raise ValueError('Unable to locate key for {}'.format(block_uuid))
+        raise ValueError('Unable to locate keys for {}'.format(block_uuid))
 
     if args.mode == 'prev':
         key = stored_data['data'].get('prev_key')
@@ -166,7 +166,7 @@ def _validate_keys(args, client, config):
 
     if key == None or slot == None:
         raise ValueError('Unable to locate {} key for {} in (%s)'.format(
-            args.mode, block_uuid), stored_data['data'].keys())
+            args.mode, slot, block_uuid), stored_data['data'].keys())
 
     try:
         dmcrypt.luks_try_open(key, block_uuid, slot)
