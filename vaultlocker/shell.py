@@ -165,8 +165,8 @@ def _validate_keys(args, client, config):
         raise ValueError("Unrecognized mode '{}'".format(args.mode))
 
     if key == None or slot == None:
-        raise ValueError('Unable to locate {} key for {} in (%s)'.format(
-            args.mode, slot, block_uuid), stored_data['data'].keys())
+        raise ValueError('Unable to locate {} key for {} ({})'.format(
+            args.mode, block_device, block_uuid))
 
     try:
         dmcrypt.luks_try_open(key, block_uuid, slot)
