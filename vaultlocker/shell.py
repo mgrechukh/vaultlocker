@@ -194,10 +194,12 @@ def _rotate_keys(args, client, config):
     stored_data = client.read(vault_path)
     if stored_data is None:
         raise ValueError('Unable to locate key for {}'.format(block_uuid))
+
     old_key = stored_data['data']['dmcrypt_key']
     old_slot = int(stored_data['data'].get('slot', 0))
 
     # be sure values are consistent
+    logger.info("checking present key in slot {}", old_slot)
     dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
 
     new_slot = 1 if old_slot == 0 else 0
@@ -209,6 +211,7 @@ def _rotate_keys(args, client, config):
     except subprocess.CalledProcessError:
         pass
 
+    logger.info("adding new key to slot {}", new_slot)
     try:
         dmcrypt.luks_add_key(old_key, block_uuid, new_key, slot=new_slot)
     except subprocess.CalledProcessError as luks_error:
@@ -223,6 +226,7 @@ def _rotate_keys(args, client, config):
         raise exceptions.LUKSFailure(block_device, luks_error.output)
 
     # validating both keys still are valid
+    logger.info("validating both keys are valid")
     try:
         dmcrypt.luks_try_open(old_key, block_uuid, old_slot)
         dmcrypt.luks_try_open(new_key, block_uuid, new_slot)
@@ -236,6 +240,7 @@ def _rotate_keys(args, client, config):
                 luks_error.output))
         raise exceptions.LUKSFailure(block_device, luks_error.output)
 
+    logger.info("writing Vault")
     try:
         client.write(vault_path,
                      dmcrypt_key=new_key, slot=new_slot, prev_key=old_key, prev_slot=old_slot)
@@ -460,14 +465,14 @@ def main():
     )
     parser.add_argument(
         '-d', '--debug',
-        default=logging.WARNING,
+        default=logging.INFO,
         help="Print lots of debugging statements",
         action="store_const", dest="loglevel", const=logging.DEBUG,
     )
     parser.add_argument(
-        '-v', '--verbose',
-        help="Be verbose",
-        action="store_const", dest="loglevel", const=logging.INFO,
+        '-q', '--quiet',
+        help="Be quiet",
+        action="store_const", dest="loglevel", const=logging.WARN,
     )
 
     encrypt_parser = subparsers.add_parser(
