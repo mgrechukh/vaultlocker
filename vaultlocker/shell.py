@@ -58,7 +58,7 @@ def _get_vault_path(device_uuid, config):
     :returns: str: Path to vault resource for device
     """
     return '{}/{}/{}'.format(config.get('vault', 'backend'),
-                             socket.gethostname(),
+                             socket.gethostname().lower(),
                              device_uuid)
 
 
